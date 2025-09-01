@@ -1,0 +1,16 @@
+{"case_id": "image_builder_blueprints", "prompt": "Show me my image blueprints", "expected_tools": ["image-builder__get_blueprints"], "expected_parameters": {}}
+{"case_id": "image_builder_distributions", "prompt": "What Linux distributions are available for image building?", "expected_tools": ["image-builder__get_distributions"], "expected_parameters": {}}
+{"case_id": "image_builder_composes", "prompt": "Show me my recent image builds and their status", "expected_tools": ["image-builder__get_composes"], "expected_parameters": {}}
+{"case_id": "image_builder_openapi", "prompt": "Show me the available image builder API specifications", "expected_tools": ["image-builder__get_openapi"], "expected_parameters": {}}
+{"case_id": "create_rhel_blueprint", "prompt": "Create a new RHEL 9 blueprint for web servers", "expected_tools": ["image-builder__create_blueprint"], "expected_parameters": {"data": "required"}}
+{"case_id": "advisor_recommendations_basic", "prompt": "Show me active recommendations for my systems", "expected_tools": ["advisor__get_active_rules"], "expected_parameters": {}}
+{"case_id": "advisor_recommendations_tagged", "prompt": "Show me Advisor recommendations for systems tagged 'insights-client/security=strict'", "expected_tools": ["advisor__get_active_rules"], "expected_parameters": {"tags": "required"}}
+{"case_id": "advisor_recommendations_workspace", "prompt": "Show me Advisor recommendations for systems in the workspace \"your_workspace\"", "expected_tools": ["advisor__get_active_rules"], "expected_parameters": {"groups": "required"}}
+{"case_id": "advisor_security_playbooks", "prompt": "Show me all 'Critical' or 'Important' security recommendations that have an Ansible playbook available for remediation", "expected_tools": ["advisor__get_active_rules"], "expected_parameters": {"has_automatic_remediation": "required", "impact": "required"}}
+{"case_id": "advisor_performance_rhel8", "prompt": "Show me all performance-related recommendations for my systems running RHEL 8", "expected_tools": ["advisor__get_active_rules"], "expected_parameters": {"category": "required"}}
+{"case_id": "advisor_reboot_required", "prompt": "Which recommendations requires a reboot?", "expected_tools": ["advisor__get_active_rules"], "expected_parameters": {"reboot": "required"}}
+{"case_id": "advisor_risk_explanation", "prompt": "Get the recommendation related to 'Disable Transparent Huge Pages'", "expected_tools": ["advisor__get_rule_by_text_search"], "expected_parameters": {"text": "required"}}
+{"case_id": "vulnerability_cves", "prompt": "Show me the CVEs affecting my systems", "expected_tools": ["vulnerability_get_cves", "get_cves"], "expected_parameters": {}}
+{"case_id": "vulnerability_systems", "prompt": "List all systems in my vulnerability inventory", "expected_tools": ["vulnerability__get_systems", "get_systems"], "expected_parameters": {}}
+{"case_id": "inventory_hosts", "prompt": "List all hosts in my inventory", "expected_tools": ["inventory__list_hosts", "list_hosts"], "expected_parameters": {}}
+{"case_id": "remediations_playbook", "prompt": "Create a remediation playbook for the critical vulnerabilities on my systems", "expected_tools": ["remediations__create_vulnerability_playbook"], "expected_parameters": {"playbook_name": "required", "cves": "required", "uuids": "required"}}
