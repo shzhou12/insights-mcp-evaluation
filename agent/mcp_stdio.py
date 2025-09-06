@@ -197,8 +197,69 @@ def test_connection(command: List[str]) -> bool:
                 success, tools = client.list_tools()
                 if success:
                     print(f"Successfully connected. Found {len(tools)} tools.")
-                    for tool in tools:
-                        print(f"  - {tool.get('name', 'unknown')}: {tool.get('description', 'no description')}")
+                    print("=" * 80)
+                    
+                    for i, tool in enumerate(tools, 1):
+                        print(f"\n[Tool {i}] {tool.get('name', 'unknown')}")
+                        print(f"Description: {tool.get('description', 'no description')}")
+                        
+                        # Get input schema information
+                        input_schema = tool.get('inputSchema', {})
+                        if input_schema:
+                            print("\nParameters:")
+                            
+                            # Get properties and required fields
+                            properties = input_schema.get('properties', {})
+                            required_fields = input_schema.get('required', [])
+                            
+                            if properties:
+                                for param_name, param_info in properties.items():
+                                    print(f"  • {param_name}")
+                                    print(f"    Type: {param_info.get('type', 'unknown')}")
+                                    print(f"    Description: {param_info.get('description', 'no description')}")
+                                    print(f"    Required: {'Yes' if param_name in required_fields else 'No'}")
+                                    print(f"    anyOf: {param_info.get('anyOf', 'N/A')}")
+                                    
+                                    # Show default value if exists
+                                    if 'default' in param_info:
+                                        print(f"    Default: {param_info['default']}")
+                                    
+                                    # Show enum values if exists
+                                    if 'enum' in param_info:
+                                        print(f"    Allowed values: {param_info['enum']}")
+                                    
+                                    # Show format if exists (for strings)
+                                    if 'format' in param_info:
+                                        print(f"    Format: {param_info['format']}")
+                                    
+                                    # Show additional constraints
+                                    if param_info.get('type') == 'string':
+                                        if 'minLength' in param_info:
+                                            print(f"    Min length: {param_info['minLength']}")
+                                        if 'maxLength' in param_info:
+                                            print(f"    Max length: {param_info['maxLength']}")
+                                    elif param_info.get('type') in ['number', 'integer']:
+                                        if 'minimum' in param_info:
+                                            print(f"    Minimum: {param_info['minimum']}")
+                                        if 'maximum' in param_info:
+                                            print(f"    Maximum: {param_info['maximum']}")
+                                    elif param_info.get('type') == 'array':
+                                        if 'items' in param_info:
+                                            items_info = param_info['items']
+                                            print(f"    Array items type: {items_info.get('type', 'unknown')}")
+                                        if 'minItems' in param_info:
+                                            print(f"    Min items: {param_info['minItems']}")
+                                        if 'maxItems' in param_info:
+                                            print(f"    Max items: {param_info['maxItems']}")
+                                    
+                                    print()
+                            else:
+                                print("  No parameters defined")
+                        else:
+                            print("\nParameters: No input schema defined")
+                        
+                        print("-" * 60)
+                    
                     return True
         return False
     except Exception as e:
