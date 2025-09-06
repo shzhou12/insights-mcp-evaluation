@@ -90,21 +90,36 @@ def run_evaluation(
         try:
             result = evaluator.evaluate_case(case)
 
-            if result.get("error_message"):
-                print(f"  ❌ Error: {result['error_message']}")
+            # Always show the three core metrics
+            selection = "✅" if result.get("selection_correct") else "❌"
+            call = "✅" if result.get("call_success") else "❌"
+            parameters_correct = "✅" if result.get("parameter_correct") else "❌"
+            
+            chosen = result.get("chosen_tool", "None")
+            parameters_result = result.get("tool_args", None)
+            
+            print(f"  Tool selection: {selection} (chose: {chosen})")
+            
+            # Enhanced tool call display with technical/content breakdown
+            # Handle backward compatibility for older log entries
+            technical_success = result.get("technical_success", result.get("call_success", False))
+            content_quality = result.get("content_quality_check", result.get("call_success", False))
+            
+            if result.get("call_success"):
+                print(f"  Tool call: {call}")
             else:
-                selection = "✅" if result.get("selection_correct") else "❌"
-                call = "✅" if result.get("call_success") else "❌"
-                call_error = result.get("error_message", None)
-                parameters_correct = "✅" if result.get("parameter_correct") else "❌"
-                parameters_result = result.get("tool_args", None)
-                chosen = result.get("chosen_tool", "None")
-                print(f"  Tool selection: {selection} (chose: {chosen})")
-                if call_error:
-                    print(f"  Tool call: {call} ({call_error})")
-                else:
-                    print(f"  Tool call: {call}")
-                print(f"  Parameter validation: {parameters_correct} ({parameters_result})")
+                # Show detailed breakdown of failure
+                tech_icon = "✅" if technical_success else "❌"
+                content_icon = "✅" if content_quality else "❌"
+                print(f"  Tool call: {call} (Technical: {tech_icon}, Content: {content_icon})")
+                
+                error_msg = result.get("error_message", "Unknown error")
+                print(f"    └─ Failure reason: {error_msg}")
+            
+            print(f"  Parameter validation: {parameters_correct} ({parameters_result})")
+            
+            # Count as successful only if all three core metrics pass
+            if result.get("selection_correct") and result.get("call_success") and result.get("parameter_correct"):
                 successful_cases += 1
 
         except Exception as e:

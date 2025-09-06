@@ -44,6 +44,7 @@ class Evaluator:
         prompt = case.get("prompt", "")
         expected_tools = case.get("expected_tools", [])
         expected_parameters = case.get("expected_parameters", {})
+        expected_result = case.get("expected_result_validation", {})
 
         start_time = datetime.now()
         result = {
@@ -51,12 +52,15 @@ class Evaluator:
             "prompt": prompt,
             "expected_tools": expected_tools,
             "expected_parameters": expected_parameters,
+            "expected_result": expected_result,
             "chosen_tool": None,
             "tool_args": None,
             "selection_correct": False,
             "call_success": False,
             "parameter_correct": False,
+            "content_quality_check": False,
             "error_message": None,
+            "content_quality_reason": None,
             "timestamp": start_time.isoformat(),
             "duration_ms": 0,
         }
@@ -113,25 +117,36 @@ class Evaluator:
 
                 # Attempt tool call
                 call_success, call_result = mcp_client.call_tool(chosen_tool, tool_args)
+                result["call_result"] = call_result
 
-                # Judge tool call success based on JSON-RPC response:
-                # Success = no error field in response OR explicit success=true
-                if call_success:
-                    # Additional check: if result contains success field, it must be true
-                    if isinstance(call_result, dict):
-                        error_exists = call_result.get("isError", True)
-                        result["call_success"] = not error_exists
-
-                        actual_result = call_result.get("structuredContent", {}).get("result", "")
-                        if isinstance(actual_result, str) and actual_result.startswith("Error:"):
-                            result["call_success"] = False
-                            result["error_message"] = actual_result
+                # Enhanced tool call success evaluation with multiple layers
+                technical_success = self._evaluate_technical_success(call_success, call_result)
+                content_quality_valid, content_reason = self._validate_content_quality(call_result, expected_result)
+                
+                # Store detailed results
+                result["technical_success"] = technical_success
+                result["content_quality_check"] = content_quality_valid
+                result["content_quality_reason"] = content_reason
+                
+                # Overall call success: both technical success AND content quality
+                result["call_success"] = technical_success and content_quality_valid
+                
+                # Set error message based on the failure type
+                if not technical_success:
+                    if not call_success:
+                        result["error_message"] = f"Technical failure: Tool call failed: {call_result}"
                     else:
-                        result["call_success"] = False
-                    result["call_result"] = call_result
-                else:
-                    result["call_success"] = False
-                    result["error_message"] = f"Tool call failed: {call_result}"
+                        # Technical failure due to response format issues
+                        if isinstance(call_result, dict):
+                            actual_result = call_result.get("structuredContent", {}).get("result", "")
+                            if isinstance(actual_result, str) and actual_result.startswith("Error:"):
+                                result["error_message"] = f"Technical failure: {actual_result}"
+                            else:
+                                result["error_message"] = "Technical failure: Invalid response format"
+                        else:
+                            result["error_message"] = "Technical failure: Invalid response format"
+                elif not content_quality_valid:
+                    result["error_message"] = f"Content quality failure: {content_reason}"
 
         except Exception as e:
             result["error_message"] = f"Evaluation error: {str(e)}"
@@ -170,6 +185,181 @@ class Evaluator:
                 if param_value is None or (isinstance(param_value, str) and param_value.strip() == ""):
                     return False
 
+        return True
+
+    def _evaluate_technical_success(self, call_success: bool, call_result: Dict[str, Any]) -> bool:
+        """Evaluate technical success of the tool call (JSON-RPC level).
+        
+        Args:
+            call_success: Whether the MCP call succeeded
+            call_result: The raw result from the tool call
+            
+        Returns:
+            True if technically successful
+        """
+        if not call_success:
+            return False
+        
+        # Additional check: if result contains error indicators
+        if isinstance(call_result, dict):
+            error_exists = call_result.get("isError", False)
+            if error_exists:
+                return False
+            
+            # Check for error messages in structured content
+            structured_content = call_result.get("structuredContent", {})
+            result_data = structured_content.get("result", "")
+            if isinstance(result_data, str) and result_data.startswith("Error:"):
+                return False
+        else:
+            # Non-dict response indicates format issues
+            return False
+        
+        return True
+
+    def _validate_content_quality(self, call_result: Dict[str, Any], expected_result: Dict[str, Any] = None) -> Tuple[bool, str]:
+        """Validate the quality and completeness of tool call results.
+        
+        Args:
+            call_result: The result returned by the tool call
+            expected_result: Optional expected result validation rules
+            
+        Returns:
+            Tuple of (is_valid, reason)
+        """
+        # Check if result is empty or meaningless
+        if not self._has_meaningful_content(call_result):
+            return False, "Empty or meaningless result"
+        
+        # If expected result validation is provided, use it
+        if expected_result:
+            return self._validate_against_expected(call_result, expected_result)
+        
+        # Default content quality checks
+        return self._basic_content_validation(call_result)
+
+    def _has_meaningful_content(self, call_result: Dict[str, Any]) -> bool:
+        """Check if the call result contains meaningful content."""
+        if not isinstance(call_result, dict):
+            return False
+        
+        # Check for structured content
+        structured_content = call_result.get("structuredContent", {})
+        if isinstance(structured_content, dict):
+            result_data = structured_content.get("result")
+            
+            # If result is a string, check it's not empty or error message
+            if isinstance(result_data, str):
+                result_data = result_data.strip()
+                if not result_data or result_data.lower() in ["none", "null", "empty"]:
+                    return False
+                if result_data.startswith("Error:") or result_data.startswith("Failed:"):
+                    return False
+            
+            # If result is a dict/object, check it has meaningful data
+            elif isinstance(result_data, dict):
+                # For API responses, check if data array exists and has items
+                if "data" in result_data:
+                    data = result_data["data"]
+                    return isinstance(data, list) and len(data) > 0
+                
+                # For other dict responses, check for non-empty content
+                return len(result_data) > 0 and any(
+                    v for v in result_data.values() 
+                    if v is not None and v != "" and v != []
+                )
+            
+            # If result is a list, check it's not empty
+            elif isinstance(result_data, list):
+                return len(result_data) > 0
+        
+        # Check for content field
+        content = call_result.get("content", [])
+        if isinstance(content, list) and len(content) > 0:
+            # Check if content has meaningful text
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text = item.get("text", "").strip()
+                    if text and not text.startswith("Error:"):
+                        return True
+        
+        return False
+
+    def _validate_against_expected(self, call_result: Dict[str, Any], expected_result: Dict[str, Any]) -> Tuple[bool, str]:
+        """Validate call result against expected validation rules."""
+        validation_type = expected_result.get("type", "basic")
+        
+        if validation_type == "content_check":
+            return self._validate_content_check(call_result, expected_result)
+        elif validation_type == "data_structure":
+            return self._validate_data_structure(call_result, expected_result)
+        else:
+            return self._basic_content_validation(call_result)
+
+    def _validate_content_check(self, call_result: Dict[str, Any], rules: Dict[str, Any]) -> Tuple[bool, str]:
+        """Validate content based on specific check rules."""
+        structured_content = call_result.get("structuredContent", {})
+        result_data = structured_content.get("result")
+        
+        if isinstance(result_data, str):
+            try:
+                import json
+                result_data = json.loads(result_data.replace("'", '"'))
+            except:
+                pass
+        
+        if not isinstance(result_data, dict):
+            return False, "Result is not a valid data structure"
+        
+        # Check minimum items if specified
+        min_items = rules.get("min_items", 0)
+        if "data" in result_data:
+            data_items = result_data["data"]
+            if isinstance(data_items, list) and len(data_items) < min_items:
+                return False, f"Expected at least {min_items} items, got {len(data_items)}"
+        
+        # Check required fields
+        required_fields = rules.get("required_fields", [])
+        for field_path in required_fields:
+            if not self._check_field_exists(result_data, field_path):
+                return False, f"Required field '{field_path}' is missing"
+        
+        return True, "Content validation passed"
+
+    def _validate_data_structure(self, call_result: Dict[str, Any], rules: Dict[str, Any]) -> Tuple[bool, str]:
+        """Validate the structure of returned data."""
+        # This can be extended for specific data structure validation
+        # For now, we use basic validation but could extend with rules-based checks
+        _ = rules  # Acknowledge unused parameter for future extension
+        return self._basic_content_validation(call_result)
+
+    def _basic_content_validation(self, call_result: Dict[str, Any]) -> Tuple[bool, str]:
+        """Perform basic content validation checks."""
+        if not self._has_meaningful_content(call_result):
+            return False, "No meaningful content found"
+        
+        # Check for obvious error indicators
+        structured_content = call_result.get("structuredContent", {})
+        result_data = structured_content.get("result", "")
+        
+        if isinstance(result_data, str):
+            result_data = result_data.strip()
+            error_indicators = ["error", "failed", "exception", "not found", "invalid"]
+            if any(indicator in result_data.lower() for indicator in error_indicators):
+                return False, f"Result contains error indicators: {result_data[:100]}"
+        
+        return True, "Basic validation passed"
+
+    def _check_field_exists(self, data: Dict[str, Any], field_path: str) -> bool:
+        """Check if a nested field exists in the data structure."""
+        fields = field_path.split(".")
+        current = data
+        
+        for field in fields:
+            if not isinstance(current, dict) or field not in current:
+                return False
+            current = current[field]
+        
         return True
 
     def _log_result(self, result: Dict[str, Any]) -> None:
@@ -251,11 +441,15 @@ class Evaluator:
                         "prompt",
                         "expected_tools",
                         "expected_parameters",
+                        "expected_result",
                         "chosen_tool",
                         "selection_correct",
                         "call_success",
+                        "technical_success",
+                        "content_quality_check",
                         "parameter_correct",
                         "error_message",
+                        "content_quality_reason",
                         "timestamp",
                         "duration_ms",
                     ]
